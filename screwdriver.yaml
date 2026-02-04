@@ -1,0 +1,64 @@
+shared:
+  environment:
+    ATHENS_DOMAIN: autoblog.aws.prod
+    AWS_DEFAULT_PROFILE: saml
+    AWS_ROLE: autoblogaws-prod-k8s-deployer
+    PLATFORM_VERBOSE: true
+    AWS_PAGER: ""
+  annotations:
+    buildit: &buildit
+      image: docker.ouroath.com:4443/autoblogaws/build-tools-jdk-21:latest
+      template: scc-devops/docker-build@4
+      steps:
+        - predocker-setup: |
+            export DOCKER_OUTPUT="${SD_ARTIFACTS_DIR}/docker.output"
+        - predocker-tag: |
+            meta set LAST_SUCCESSFUL_BUILD ${SD_BUILD_ID}
+        - docker-setup: |
+            sd-cmd exec docker/install@2
+        - preaws-ecr-docker-repo: |
+            unset AWS_DEFAULT_PROFILE
+        - postaws-ecr-docker-repo: |
+            export AWS_DEFAULT_PROFILE="saml"
+jobs:
+  webapp-docker-build:
+    requires: [~commit]
+    image: docker.ouroath.com:4443/autoblogaws/build-tools-jdk-21:latest
+    description: Build the webapp and docker container
+    annotations:
+      screwdriver.cd/cpu: HIGH
+      screwdriver.cd/ram: HIGH
+    environment:
+       ARTIFACTORY_PUSH: "true"
+       ECR_PUSH: "true"
+       IMAGE_NAME: "autoblogaws/autoblog-ai"
+       VERSION_FROM_CMD: "echo $SD_BUILD_SHA"
+       DOCKERFILE_PATH: "."
+       ATHENS_DOMAIN: "autoblog.aws.dev"
+       AMAZON_ROLE_NAME: "autoblogaws-dev-k8s-deployer"
+       AWS_REGIONS: "us-east-1"
+       DOCKER_TAGS: "$(meta get LAST_SUCCESSFUL_BUILD) latest"
+    <<: *buildit
+  trigger-nonprod-app-deploy:
+    requires: [webapp-docker-build]
+    image: node:12
+    description: Trigger remote dev deployment in autoblog-fleks pipeline
+    steps:
+      - noop: echo "noop"
+  trigger-staging-app-deploy:
+    requires: [webapp-docker-build]
+    image: node:12
+    description: Trigger remote staging deployment in autoblog-fleks pipeline
+    steps:
+      - noop: echo "noop"
+  trigger-prod-app-deploy:
+    image: node:12
+    description: Trigger remote production deployment in autoblog-fleks pipeline
+    steps:
+      - noop: echo "noop"
+  validate-semgrep:
+    template: ProdSec/validate_semgrep@stable
+    image: alma8
+    environment:
+      YAHOO_SEMGREP_ENFORCING: True
+      YAHOO_SEMGREP_ONLINE: True
